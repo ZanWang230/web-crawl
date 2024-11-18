@@ -1,0 +1,181 @@
+from bs4 import BeautifulSoup as bs  # Import BeautifulSoup for parsing HTML content
+import re  # Import regular expressions module for pattern matching
+import pandas as pd  # Import pandas for data manipulation and storage
+import traceback  # Import traceback to handle exceptions and errors
+import random  # Import random module to introduce variability (e.g., in waiting times)
+import time as Time  # Import time module and alias it as Time for waiting
+import requests as rq  # Import requests for sending HTTP requests
+import mysql.connector  # Import MySQL connector to interact with MySQL databases
+
+# Lists to store data about movies
+title_cns = []  # List to store Chinese movie titles
+title_ens = []  # List to store English movie titles
+release_dates = []  # List to store movie release dates
+cinema_typess = []  # List to store cinema types (e.g., IMAX, 2D, etc.)
+cinemass = []  # List to store cinema names
+times = []  # List to store showtimes
+dates = []  # List to store movie dates
+genre_list = []  # List to store movie genres
+descriptions = []  # List to store movie descriptions
+directors = []  # List to store movie directors
+actorss = []  # List to store movie actors
+l_move_img = []  # List to store movie poster image URLs
+youtube = []  # List to store YouTube trailer links
+time_links = []  # List to store links to the showtime schedule pages
+cinema_group = []  # List to store cinema group name (e.g., Warner Bros.)
+
+# List of cinema names to identify cinemas in the schedule
+cinema_list = [
+    'MUVIE CINEMAS', 'MUVIE CINEMAS台北松仁威秀(MUCROWN)', '中和環球威秀影城', '台中TIGER CITY威秀影城', 
+    '台中Tiger City威秀影城(GOLD CLASS)', '台中大遠百威秀影城', '台中大魯閣新時代威秀影城', '台北京站威秀影城',
+    '台北信義威秀影城', '台北西門威秀影城', '台南FOCUS 威秀影城', '台南南紡威秀影城', 
+    '台南南紡威秀影城(GOLD CLASS)', '台南大遠百威秀影城', '新店裕隆城威秀影城', '新竹大遠百威秀影城',
+    '新竹大遠百威秀影城(GOLD CLASS)', '新竹巨城威秀影城', '板橋大遠百威秀影城', '林口MITSUI OUTLET PARK威秀影城', 
+    '林口MITSUI OUTLET PARK威秀影城(Mappa)', '桃園桃知道威秀影城', '桃園統領威秀影城', '花蓮新天堂樂園威秀影城', 
+    '頭份尚順威秀影城', '高雄大遠百威秀影城', '高雄大遠百威秀影城(GOLD CLASS)'
+]
+
+dic = {}  # Dictionary to store cinema names and their corresponding movie times
+wait_time = random.randint(5, 15)  # Random wait time between requests to avoid getting blocked
+
+# Loop through the first 4 pages of the movie listing website
+for page in range(1, 5):
+    idds = ['114.33.18.16:3128', '210.61.207.92:80', '103.229.126.93:3128', 
+            '1.160.1.221:8081', '36.229.178.32:8080'] * 2  # List of proxy IP addresses
+    sess = rq.Session()  # Create a new requests session to maintain the connection
+    # Make an HTTP POST request to the movie listings page
+    r = sess.post(f'https://www.vscinemas.com.tw/vsweb/film/index.aspx?p={page}', 
+                  headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36'})
+
+    # Uncomment the following code to use proxies in case of blocking (not currently in use)
+    # for idd in idds:
+    #     proxies = {'https': f'http://{idd}'}  # Set up a proxy for the request
+    #     try:
+    #         r = sess.post(f'https://www.vscinemas.com.tw/vsweb/film/index.aspx?p={page}', 
+    #                       headers={'User-Agent': 'Mozilla/5.0 ...'}, 
+    #                       verify=False, proxies=proxies)
+    #         print('page accessed')
+    #         break
+    #     except:
+    #         continue
+    
+    Time.sleep(wait_time)  # Wait for a random amount of time before making the next request
+    soup = bs(r.text, 'html.parser')  # Parse the HTML response using BeautifulSoup
+    links = soup.select('ul.movieList>li a')  # Select all the movie links on the page
+
+    # Loop through each movie link and scrape its details
+    for movie_no, link in enumerate(links):
+        movie_id = link.get('href')  # Get the movie ID from the link
+        r = sess.post(f'https://www.vscinemas.com.tw/vsweb/film/{movie_id}', 
+                      headers={'User-Agent': "Mozilla/5.0 ..."})
+        Time.sleep(wait_time)  # Wait before making the next request
+        r = r.text
+        soup = bs(r, 'html.parser')  # Parse the movie detail page
+
+        # Try to extract the YouTube trailer link from the page (if it exists)
+        try:
+            youtube_link = soup.find('iframe').get('src')
+        except AttributeError:
+            youtube_link = ''  # If no YouTube link exists, set it to an empty string
+        
+        # Link to the movie's schedule page
+        time_link = f'https://www.vscinemas.com.tw/vsweb/film/{movie_id}'
+        
+        # Regular expression to match showtimes and related data
+        pattern = re.compile(r'\d{4}\s[\u4e00-\u9fa5]\s\d{2}\s[\u4e00-\u9fa5]\s\d{2}\s[\u4e00-\u9fa5]')
+        matches = re.findall(r'\d{2}:\d{2}|\d{4}\s[\u4e00-\u9fa5]\s\d{2}\s[\u4e00-\u9fa5]\s\d{2}\s[\u4e00-\u9fa5]|hidden article', r)
+        body_list = '\n'.join(matches).split('hidden article')[1:]  # Split showtimes into a list
+
+        # Extract movie description and title information
+        try:
+            che = r.split('<h4><span class="icon-eyeglasses"></span>放映版本</h4>')[1].split('<p class="versionNote">*請選擇放映版本及影廳，場次將列於下方</p>')[0]
+        except IndexError:
+            continue  # Skip this movie if there's an error extracting the data
+
+        description = soup.find(class_='bbsArticle').text  # Movie description
+        title_area = soup.find(class_='titleArea').text.split('\n')  # Movie title info
+        title_cn = title_area[1]  # Chinese title
+        print(title_cn)  # Print the Chinese title
+        title_en = title_area[2]  # English title
+        print(title_en)  # Print the English title
+        release_date = title_area[3]  # Release date
+
+        # Extract additional information about the movie (director, actors, genre)
+        info_area = soup.find(class_='infoArea').text.split('\n')
+        img = soup.select("div.movieMain > figure > img")  # Get movie poster image
+        
+        if len(info_area) < 5:
+            director = ''
+            actor = ''
+            gere = ''
+        else:
+            director = info_area[5]  # Director
+            actor = info_area[9]  # Actors
+            gere = info_area[13]  # Genre
+
+        soup2 = bs(che, 'html.parser')  # Parse showtime details
+        cinemas = soup2.select('a')  # Select all cinema names
+        order = []  # List to store the order of cinemas
+
+        # Loop through all cinemas and their showtimes
+        for cinema in cinemas:
+            if "/" in cinema.text or cinema.text == '數位':  # Skip invalid cinema names
+                order.append(cinema.text)
+                dic[cinema.text] = []  # Initialize an empty list for showtimes
+                last = cinema.text
+            else:
+                dic[last].append(cinema.text)  # Assign showtimes to the last cinema
+
+        order_index = 0
+        cinema_index = 0
+
+        # Loop through showtimes and assign them to the corresponding cinemas
+        for b in body_list:
+            if b == ' ' or b == '\n':  # Skip empty entries
+                continue
+            try:
+                if len(dic[order[order_index]]) == cinema_index:
+                    cinema_index = 0  # Reset cinema index if all showtimes for a cinema are added
+                    order_index += 1  # Move to the next cinema
+            except IndexError:
+                break  # Exit if all cinemas are processed
+            
+            # Loop through each showtime and store the movie details
+            for time in b.strip('\n').split('\n'):
+                if len(time) > 5:  # Filter out invalid showtimes
+                    date = time
+                else:
+                    if order_index != len(order) and cinema_index != len(dic[order[order_index]]):
+                        # Append movie details to the lists
+                        cinema_typess.append(order[order_index])
+                        cinemass.append(dic[order[order_index]][cinema_index])
+                        title_cns.append(title_cn)
+                        title_ens.append(title_en)
+                        release_dates.append(release_date)
+                        times.append(time)
+                        dates.append(date)
+                        genre_list.append(gere)
+                        descriptions.append(description)
+                        directors.append(director)
+                        actorss.append(actor)
+                        l_move_img.append("https://www.vscinemas.com.tw/vsweb" + img[0].get("src").strip(".."))
+                        youtube.append(youtube_link)
+                        time_links.append(time_link)
+                        cinema_group.append('華納威秀')  # Cinema group (Warner Cinemas)
+                    else:
+                        break
+            cinema_index += 1
+
+# Create a DataFrame to store the collected data
+vienson_data = pd.DataFrame({
+    '中文片名': title_cns, '英文片名': title_ens, '廳位': cinema_typess,
+    '日期': dates, '時刻表': times, '電影院名稱': cinemass, '上映日': release_dates,
+    '類型': genre_list, '導演': directors, '演員': actorss, '簡介': descriptions,
+    '宣傳照': l_move_img, 'youtube': youtube, 'time_link': time_links, '影城': cinema_group
+})
+
+# Remove duplicate entries
+vienson_data = vienson_data.drop_duplicates()
+
+# Print the total number of unique movie records collected
+print(f'華納威秀總共{len(vienson_data)}筆資料')  # Total number of unique movie records from Warner Cinemas
