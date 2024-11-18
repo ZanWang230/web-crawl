@@ -1,11 +1,9 @@
 from bs4 import BeautifulSoup as bs  # Import BeautifulSoup for parsing HTML content
 import re  # Import regular expressions module for pattern matching
 import pandas as pd  # Import pandas for data manipulation and storage
-import traceback  # Import traceback to handle exceptions and errors
 import random  # Import random module to introduce variability (e.g., in waiting times)
 import time as Time  # Import time module and alias it as Time for waiting
 import requests as rq  # Import requests for sending HTTP requests
-import mysql.connector  # Import MySQL connector to interact with MySQL databases
 
 # Lists to store data about movies
 title_cns = []  # List to store Chinese movie titles
