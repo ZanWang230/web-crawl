@@ -1,0 +1,109 @@
+from bs4 import BeautifulSoup as bs
+import requests
+import pandas as pd
+import re
+che=[]
+che2=[]
+chinese_name=[]
+eng_name=[]
+versions=[]
+dates_data_list=[]
+time_data_list=[]
+release_dates=[]
+genre=[]
+director=[]
+actor=[]
+description=[]
+data_cinema=[]
+l_move_img = []
+youtube=[]
+time_links=[]
+cinema_group=[]
+sess=requests.Session()
+r=sess.post('https://www.miramarcinemas.tw/timetable',headers={'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36'})
+r=r.text
+soups=bs(r,'html.parser').find_all(class_='timetable_list row')
+for soup in soups:
+    titles=soup.find_all(class_='title')
+    titles_en=soup.find_all(class_='title_en')
+    length=soup.find_all(class_='time')
+    level=soup.find_all(class_='badge_movie_level')
+    movie_date=soup.find_all(class_='booking_date_area')
+    movie_time_r=r.split('block booking_date_area')[1:]
+    movie_descriptions=soup.find_all(class_='description hide-on-small-only')
+    genre_links=soup.select('div.col.m4.s5>a')
+    imgs=soup.select('div.col.m4.s5>img')
+    #抓出所電影的資訊:中文片名,英文片名,放映日期,時刻表,簡介,網頁連結,宣傳照
+    for t,te,md,mt,des,link,img in zip(titles,titles_en,movie_date,movie_time_r,movie_descriptions,genre_links,imgs):
+        #打印正在處理的電影中英文
+        print(f'中文片名:{t.text}')
+        print(f'英文片名:{te.text}')
+        date_list=md.text.strip('\n').split('\n')
+        soup_time=bs(mt,'html.parser')
+        movie_times=soup_time.find_all(class_='time_area')
+        cinema_type=soup_time.find_all(class_='room')
+        time_link='https://www.miramarcinemas.tw/'+link.get('href')
+        response=sess.post(time_link) #進入單一電影頁面，抓取更多資訊
+        soup2=bs(response.text,'html.parser')
+        #抓取youtube預告片連結，如果沒有預告片則為空字串
+        try:
+            youtube_link=soup2.find('iframe').get('src')
+        except AttributeError:
+            youtube_link=''
+        detail=soup2.find(class_='movie_info_item')
+        img_r=sess.get(img.get('src'),headers={'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36'})
+        if img_r.status_code == 200:  #確保成功訪問網頁
+            #下載宣傳照，並確保檔名可以使用
+            # from werkzeug.utils import secure_filename
+            # filename = secure_filename(f'{te.text}.jpg')  
+            # with open(filename,'wb') as file:
+            #     file.write(img_r.content)
+            detail_list=detail.text.replace(' ','').replace('\n\n','').split('\n')
+            new_detail=soup.select('div.col.m6.s12.time_list_right')
+            last_type=[]
+            change_date=0
+            #透過字串處理以獲取資訊
+            for d in new_detail:
+                che.append(d.text)
+                d=d.text.split('\n\n\n')
+                d[0]=d[0].replace('event_note請選擇日期及廳別場次:','').strip('\n')
+                che2.append(d)
+                pattern=re.compile(r'\d{2}:\d{2}')
+                for dd in d[1:-1]:
+                    dd=dd.strip('\n').split('\n')
+                    if dd[0] in last_type:
+                        last_type=[]
+                        change_date+=1
+                    for tt in dd:
+                        if pattern.match(tt):
+                            if '演員CAST' not in detail_list[5]:
+                                director.append(detail_list[5])
+                            else:
+                                director.append(None)
+                            try:
+                                actor.append(detail_list[7])
+                            except IndexError:
+                                actor.append(None)
+                            time_data_list.append(tt)
+                            chinese_name.append(t.text)
+                            eng_name.append(te.text)
+                            description.append(des.text.replace(' ',''))
+                            versions.append(last_type[-1])
+                            dates_data_list.append(d[0].split('\n')[change_date])
+                            chee=d[0].split('\n')
+                            release_dates.append(detail_list[1])
+                            genre.append(detail_list[3])
+                            data_cinema.append('美麗華影城  Da-Zhi Cinema')
+                            l_move_img.append(img.get('src'))
+                            youtube.append(youtube_link)
+                            time_links.append(time_link)
+                            cinema_group.append('美麗華影城')
+                        elif tt!='':
+                            last_type.append(tt)
+        else:
+            print('not connected')
+#所有資料整合進一個DataFrame
+mira_data=pd.DataFrame({'中文片名':chinese_name,'英文片名':eng_name,'廳位':versions,
+                            '日期':dates_data_list,'時刻表':time_data_list,'電影院名稱': data_cinema,'上映日':release_dates,'類型':genre,
+                            '導演':director,'演員':actor,'簡介':description,'宣傳照':l_move_img,'youtube': youtube,
+                            'time_link':time_links,'影城':cinema_group})
